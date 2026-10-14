@@ -6,6 +6,7 @@ All tokens are sent as ``HttpOnly`` cookies, never in the response body.
 from django.conf import settings
 from django.db import transaction
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -152,43 +153,37 @@ class LogoutView(TokenBlacklistView):
 class CookieTokenRefreshView(TokenRefreshView):
     """Create new tokens from the refresh cookie.
 
-    Endpoint: ``POST /auth/token/refresh/``
+    Endpoint: ``POST /api/token/refresh/``
     Authentication: none, disabled by the parent class.
     """
 
     def post(self, request, *args, **kwargs):
-        """Read the refresh token from the cookie and set new auth cookies.
+        """Set new auth cookies and return the new access token.
 
-        With ``ROTATE_REFRESH_TOKENS`` a new refresh token is set as well and
-        the old one is blacklisted (``BLACKLIST_AFTER_ROTATION``).
-
-        Request body:
-            none, the refresh token is read from the cookie.
-
-        Responses:
-            200: ``detail``. New access cookie, with rotation also a new refresh cookie.
-            401: Refresh cookie missing, expired or blacklisted.
+        The access token in the body is for demonstration only, the frontend
+        uses the cookie.
         """
-        refresh_token = request.COOKIES.get(settings.AUTH_COOKIE["REFRESH_NAME"])
-
-        if not refresh_token:
-            raise InvalidToken("No refresh token cookie.")
-
-        serializer = self.get_serializer(data={"refresh": refresh_token})
-
-        try:
-            serializer.is_valid(raise_exception=True)
-        except TokenError as e:
-            # Same handling as the parent class: turns into a 401 response.
-            raise InvalidToken(e.args[0]) from e
-
+        tokens = self._get_refreshed_tokens(request)
         response = Response(
-            {
-                "detail": "Tokens refreshed!",
-            },
+            {"detail": "Token refreshed", "access": tokens["access"]},
             status=status.HTTP_200_OK,
         )
-
-        set_auth_cookies(response, serializer.validated_data)
-
+        set_auth_cookies(response, tokens)
         return response
+
+    def _get_refreshed_tokens(self, request):
+        """Validate the refresh cookie and return the new tokens.
+
+        Raises:
+            ValidationError: The refresh cookie is missing (400).
+            InvalidToken: The token is invalid, expired or blacklisted (401).
+        """
+        refresh_token = request.COOKIES.get(settings.AUTH_COOKIE["REFRESH_NAME"])
+        if not refresh_token:
+            raise ValidationError({"detail": "Refresh token is missing."})
+        serializer = self.get_serializer(data={"refresh": refresh_token})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as error:
+            raise InvalidToken(error.args[0]) from error
+        return serializer.validated_data
