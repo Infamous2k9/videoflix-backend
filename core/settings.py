@@ -179,14 +179,17 @@ CACHES = {
     }
 }
 
+RQ_DEFAULT_CONNECTION = {
+    "HOST": env("REDIS_HOST", default="redis"),
+    "PORT": env.int("REDIS_PORT", default=6379),
+    "DB": env.int("REDIS_DB", default=0),
+    "REDIS_CLIENT_KWARGS": {},
+}
+
 RQ_QUEUES = {
-    "default": {
-        "HOST": env("REDIS_HOST", default="redis"),
-        "PORT": env.int("REDIS_PORT", default=6379),
-        "DB": env.int("REDIS_DB", default=0),
-        "DEFAULT_TIMEOUT": 900,
-        "REDIS_CLIENT_KWARGS": {},
-    },
+    "high": {**RQ_DEFAULT_CONNECTION, "DEFAULT_TIMEOUT": 300},
+    "default": {**RQ_DEFAULT_CONNECTION, "DEFAULT_TIMEOUT": 900},
+    "low": {**RQ_DEFAULT_CONNECTION, "DEFAULT_TIMEOUT": 1800},
 }
 
 
