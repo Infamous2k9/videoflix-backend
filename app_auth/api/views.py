@@ -77,37 +77,27 @@ class ActivateView(generics.GenericAPIView):
         )
 
 
-class LoginView(TokenObtainPairView):
-    """Log in with username and password.
+class LoginView(generics.GenericAPIView):
+    """Log in with email and password.
 
-    Endpoint: ``POST /auth/login/``
-    Authentication: none, disabled by the parent class.
+    Endpoint: ``POST /api/login/``
+    Authentication: none, an expired access cookie must not block the login.
     """
 
     serializer_class = LoginSerializer
+    permission_classes = (AllowAny,)
+    authentication_classes = ()
 
     def post(self, request, *args, **kwargs):
-        """Check the credentials and set both auth cookies.
-
-        The tokens are removed from the response body.
-
-        Request body:
-            ``username``, ``password``
-
-        Responses:
-            200: ``detail`` and ``user``. Access and refresh cookie are set.
-            401: Wrong credentials or inactive user.
-        """
-        response = super().post(request, *args, **kwargs)
-        tokens = response.data
-
-        set_auth_cookies(response, tokens)
-
-        response.data = {
-            "detail": "Login successful!",
-            "user": tokens["user"],
-        }
-
+        """Check the credentials and set the access and refresh cookie."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data["user"]
+        response = Response(
+            {"detail": "Login successful", "user": UserSerializer(user).data},
+            status=status.HTTP_200_OK,
+        )
+        set_auth_cookies(response, get_tokens_for_user(user))
         return response
 
 

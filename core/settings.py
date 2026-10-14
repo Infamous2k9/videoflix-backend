@@ -314,7 +314,7 @@ REST_FRAMEWORK = {
 
 SIMPLE_JWT = {
     # Lifetimes also define how long the auth cookies live.
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
     # Every refresh returns a new refresh token, the old one is blacklisted.
     # Needs "rest_framework_simplejwt.token_blacklist" in INSTALLED_APPS.

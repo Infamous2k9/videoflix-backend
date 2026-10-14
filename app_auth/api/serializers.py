@@ -1,12 +1,11 @@
 """Serializers of the authentication API."""
 
-from django.contrib.auth import get_user_model
+from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .tokens import activation_token_generator
 
@@ -14,14 +13,11 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
-    """Public data of a user, used in responses.
-
-    Add new user fields to ``fields`` to include them in every auth response.
-    """
+    """Public data of a user, used in the login response."""
 
     class Meta:
         model = User
-        fields = ("id", "username", "email")
+        fields = ("id", "username")
         read_only_fields = fields
 
 
@@ -105,16 +101,28 @@ class ActivationSerializer(serializers.Serializer):
         return attrs
 
 
-class LoginSerializer(TokenObtainPairSerializer):
-    """Validate the login credentials and add the user data to the result."""
+class LoginSerializer(serializers.Serializer):
+    """Check email and password and return the matching active user."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+
+    default_error_messages = {
+        "invalid_credentials": "Please check your input and try again.",
+    }
 
     def validate(self, attrs):
-        """Return the token pair extended by a ``user`` entry.
+        """Authenticate with the email as username.
 
-        The parent checks username and password and raises a 401 error
-        if they are wrong. It also updates ``last_login``.
+        Wrong credentials and inactive accounts get the same message, so the
+        response does not reveal whether an account exists.
         """
-        data = super().validate(attrs)
-        data["user"] = UserSerializer(self.user).data
-
-        return data
+        user = authenticate(
+            request=self.context.get("request"),
+            username=attrs["email"],
+            password=attrs["password"],
+        )
+        if user is None:
+            self.fail("invalid_credentials")
+        attrs["user"] = user
+        return attrs
