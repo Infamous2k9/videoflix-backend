@@ -354,23 +354,16 @@ AUTH_COOKIE = {
 # ------------------------------------------------------------------------------
 
 AUTH_REGISTRATION = {
-    # False: the new user is active and logged in right away (auth cookies set).
-    # True:  the new user is inactive and gets an activation link by email.
-    #        No cookies are set. Opening the link activates and logs them in.
-    "EMAIL_ACTIVATION": env.bool("AUTH_EMAIL_ACTIVATION", default=False),
-    # Path of the frontend page the link in the email points to, appended to
-    # FRONTEND_BASE_URL. {uid} and {token} are filled in. The page sends both
-    # values to POST /auth/activate/<uidb64>/<token>/.
+    # Path of the frontend page the activation link points to, appended to
+    # FRONTEND_BASE_URL. {uid} and {token} are filled in.
     "ACTIVATION_PATH": env(
         "AUTH_ACTIVATION_PATH",
-        default="/activate/{uid}/{token}",
+        default="/pages/auth/activate.html?uid={uid}&token={token}",
     ),
 }
 
-if AUTH_REGISTRATION["EMAIL_ACTIVATION"] and not FRONTEND_BASE_URL:
-    raise ImproperlyConfigured(
-        "AUTH_EMAIL_ACTIVATION is on, but FRONTEND_BASE_URL is not set."
-    )
+if not FRONTEND_BASE_URL:
+    raise ImproperlyConfigured("FRONTEND_BASE_URL is not set.")
 
 # How long activation links (and password reset links) stay valid, in seconds.
 PASSWORD_RESET_TIMEOUT = env.int("PASSWORD_RESET_TIMEOUT", default=60 * 60 * 24 * 3)

@@ -54,54 +54,27 @@ class RegisterView(generics.CreateAPIView):
 
 
 class ActivateView(generics.GenericAPIView):
-    """Activate a user with the data from the activation link and log them in.
+    """Activate a user with the data from the activation link.
 
-    Endpoint: ``POST /auth/activate/<uidb64>/<token>/``
+    Endpoint: ``GET /api/activate/<uidb64>/<token>/``
     Authentication: none, the user is not logged in yet.
-
-    POST instead of GET, because the request changes data (see
-    ``AUTH_COOKIE["SAMESITE"]`` in the settings). The frontend page of
-    ``AUTH_REGISTRATION["ACTIVATION_PATH"]`` reads ``uid`` and ``token`` from
-    its URL and sends them here.
     """
 
     serializer_class = ActivationSerializer
     permission_classes = (AllowAny,)
     authentication_classes = ()
 
-    def post(self, request, uidb64, token, *args, **kwargs):
-        """Check the link, set the user active and set both auth cookies.
-
-        The link works only once, so it can't be used to log in a second time.
-
-        URL parameters:
-            ``uidb64``: encoded user id, ``token``: activation token.
-
-        Request body:
-            none.
-
-        Responses:
-            200: ``detail`` and ``user``. Access and refresh cookie are set.
-            400: Link invalid, expired or already used.
-        """
+    def get(self, request, uidb64, token, *args, **kwargs):
+        """Check the link and set the user active. The link works only once."""
         serializer = self.get_serializer(data={"uidb64": uidb64, "token": token})
         serializer.is_valid(raise_exception=True)
-
         user = serializer.validated_data["user"]
         user.is_active = True
         user.save(update_fields=["is_active"])
-
-        response = Response(
-            {
-                "detail": "Account activated!",
-                "user": UserSerializer(user).data,
-            },
+        return Response(
+            {"message": "Account successfully activated."},
             status=status.HTTP_200_OK,
         )
-
-        set_auth_cookies(response, get_tokens_for_user(user))
-
-        return response
 
 
 class LoginView(TokenObtainPairView):
