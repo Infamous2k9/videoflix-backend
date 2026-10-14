@@ -6,7 +6,6 @@ All tokens are sent as ``HttpOnly`` cookies, never in the response body.
 from django.conf import settings
 from django.db import transaction
 from rest_framework import generics, status
-from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -25,6 +24,7 @@ from .serializers import (
 from .tokens import activation_token_generator
 from .utils import (
     delete_auth_cookies,
+    get_refresh_cookie,
     get_tokens_for_user,
     queue_activation_email,
     send_activation_email,
@@ -105,48 +105,36 @@ class LoginView(generics.GenericAPIView):
 class LogoutView(TokenBlacklistView):
     """Log out and invalidate the refresh token.
 
-    Endpoint: ``POST /auth/logout/``
-    Authentication: none, disabled by the parent class.
+    Endpoint: ``POST /api/logout/``
+    Authentication: none, the refresh cookie is checked instead.
     """
 
     def post(self, request, *args, **kwargs):
-        """Blacklist the refresh token from the cookie and delete both cookies.
-
-        Request body:
-            none, the refresh token is read from the cookie.
-
-        Responses:
-            200: ``detail``. Both cookies are deleted. Also returned when there
-                are no cookies or the token is already invalid.
-        """
+        """Blacklist the refresh token from the cookie and delete both cookies."""
         self._blacklist_refresh_cookie(request)
-
         response = Response(
             {
                 "detail": (
-                    "Logout successful! All tokens have been deleted "
-                    "and the refresh token is now invalid."
+                    "Logout successful! All tokens will be deleted. "
+                    "Refresh token is now invalid."
                 ),
             },
             status=status.HTTP_200_OK,
         )
         delete_auth_cookies(response)
-
         return response
 
     def _blacklist_refresh_cookie(self, request):
-        """Blacklist the token of the refresh cookie, if present and valid."""
-        refresh_token = request.COOKIES.get(settings.AUTH_COOKIE["REFRESH_NAME"])
+        """Put the refresh token from the cookie on the blacklist.
 
-        if not refresh_token:
-            return
-
-        serializer = self.get_serializer(data={"refresh": refresh_token})
-
+        Raises:
+            ValidationError: The refresh cookie is missing (400).
+        """
+        serializer = self.get_serializer(data={"refresh": get_refresh_cookie(request)})
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError:
-            # Token already expired or blacklisted: the cookies are deleted anyway.
+            # Already expired or blacklisted: the cookies are deleted anyway.
             pass
 
 
@@ -178,10 +166,7 @@ class CookieTokenRefreshView(TokenRefreshView):
             ValidationError: The refresh cookie is missing (400).
             InvalidToken: The token is invalid, expired or blacklisted (401).
         """
-        refresh_token = request.COOKIES.get(settings.AUTH_COOKIE["REFRESH_NAME"])
-        if not refresh_token:
-            raise ValidationError({"detail": "Refresh token is missing."})
-        serializer = self.get_serializer(data={"refresh": refresh_token})
+        serializer = self.get_serializer(data={"refresh": get_refresh_cookie(request)})
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError as error:

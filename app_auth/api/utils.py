@@ -7,6 +7,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .tokens import activation_token_generator
@@ -122,3 +123,15 @@ def queue_activation_email(user, token):
     transaction.on_commit(
         lambda: queue.enqueue(send_activation_email, user.email, activation_url)
     )
+
+
+def get_refresh_cookie(request):
+    """Return the refresh token from the cookie.
+
+    Raises:
+        ValidationError: The refresh cookie is missing (400).
+    """
+    refresh_token = request.COOKIES.get(settings.AUTH_COOKIE["REFRESH_NAME"])
+    if not refresh_token:
+        raise ValidationError({"detail": "Refresh token is missing."})
+    return refresh_token
