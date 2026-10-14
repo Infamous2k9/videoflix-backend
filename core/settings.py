@@ -339,7 +339,7 @@ AUTH_COOKIE = {
     "ACCESS_PATH": "/",
     "REFRESH_NAME": "refresh_token",
     # Only sent to /auth/... (refresh and logout), not with every request.
-    "REFRESH_PATH": "/auth/",
+    "REFRESH_PATH": "/api/",
     # Lax: other websites can't send the cookies with POST/PUT/PATCH/DELETE.
     # GET requests must therefore never change data.
     "SAMESITE": "Lax",

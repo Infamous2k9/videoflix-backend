@@ -1,8 +1,10 @@
 """Helper functions of the authentication views."""
 
+import django_rq
 from django.conf import settings
 from django.contrib.auth.models import update_last_login
 from django.core.mail import send_mail
+from django.db import transaction
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -84,38 +86,39 @@ def delete_auth_cookies(response):
         response.delete_cookie(key=name, path=path, samesite=cookie["SAMESITE"])
 
 
-def build_activation_url(user):
-    """Return the activation link for the user.
+ACTIVATION_EMAIL_QUEUE = "high"
+
+
+def build_activation_url(user, token):
+    """Return the frontend link that activates the user's account.
 
     ``FRONTEND_BASE_URL`` plus ``AUTH_REGISTRATION["ACTIVATION_PATH"]``, with
-    ``{uid}`` and ``{token}`` filled in. ``uid`` is the user id, encoded so
-    that it can be used in a URL.
+    ``{uid}`` and ``{token}`` filled in.
     """
     uid = urlsafe_base64_encode(force_bytes(user.pk))
-    token = activation_token_generator.make_token(user)
     path = settings.AUTH_REGISTRATION["ACTIVATION_PATH"].format(uid=uid, token=token)
-
     return f"{settings.FRONTEND_BASE_URL}/{path.lstrip('/')}"
 
 
-def send_activation_email(user):
-    """Send the activation link to the email address of the user.
-
-    Uses the default mailer from ``MAILERS`` and ``DEFAULT_FROM_EMAIL``.
-
-    Raises:
-        Exception: The mail could not be sent, e.g. SMTP server not reachable.
-    """
-    activation_url = build_activation_url(user)
-
+def send_activation_email(email, activation_url):
+    """Send the activation link. Runs as a background job in the RQ worker."""
     send_mail(
-        subject="Activate your account",
+        subject="Activate your Videoflix account",
         message=(
-            f"Hello {user.username},\n\n"
-            "please open the following link to activate your account:\n\n"
+            "Welcome to Videoflix!\n\n"
+            "Please open the following link to activate your account:\n\n"
             f"{activation_url}\n\n"
             "If you did not register, you can ignore this email."
         ),
         from_email=None,
-        recipient_list=[user.email],
+        recipient_list=[email],
+    )
+
+
+def queue_activation_email(user, token):
+    """Queue the activation email as soon as the user is saved."""
+    activation_url = build_activation_url(user, token)
+    queue = django_rq.get_queue(ACTIVATION_EMAIL_QUEUE)
+    transaction.on_commit(
+        lambda: queue.enqueue(send_activation_email, user.email, activation_url)
     )

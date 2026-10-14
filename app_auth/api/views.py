@@ -21,22 +21,20 @@ from .serializers import (
     RegisterSerializer,
     UserSerializer,
 )
+from .tokens import activation_token_generator
 from .utils import (
     delete_auth_cookies,
     get_tokens_for_user,
+    queue_activation_email,
     send_activation_email,
     set_auth_cookies,
 )
 
 
 class RegisterView(generics.CreateAPIView):
-    """Create a user. What happens next depends on ``AUTH_REGISTRATION``.
+    """Create an inactive user and send the activation link by email.
 
-    - ``EMAIL_ACTIVATION`` off: the user is active and logged in right away.
-    - ``EMAIL_ACTIVATION`` on: the user is inactive and gets an activation
-      link by email. No cookies are set. ``ActivateView`` logs them in.
-
-    Endpoint: ``POST /auth/register/``
+    Endpoint: ``POST /api/register/``
     Authentication: none, an expired access cookie must not block the request.
     """
 
@@ -45,61 +43,14 @@ class RegisterView(generics.CreateAPIView):
     authentication_classes = ()
 
     def create(self, request, *args, **kwargs):
-        """Validate the data and create the user.
-
-        The setting is read on every request, so tests can change it with
-        ``override_settings``.
-
-        Request body:
-            ``username``, ``email``, ``password``
-
-        Responses:
-            201: ``detail`` and ``user``. Without email activation, access and
-                refresh cookie are set.
-            400: Field errors, e.g. email already exists or password too weak.
-        """
+        """Validate the data, create the user and queue the activation email."""
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        if settings.AUTH_REGISTRATION["EMAIL_ACTIVATION"]:
-            return self._register_with_activation(serializer)
-
-        return self._register_and_login(serializer)
-
-    def _register_and_login(self, serializer):
-        """Create an active user and set both auth cookies."""
         user = serializer.save()
-
-        response = Response(
-            {
-                "detail": "Registration successful!",
-                "user": UserSerializer(user).data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
-
-        set_auth_cookies(response, get_tokens_for_user(user))
-
-        return response
-
-    def _register_with_activation(self, serializer):
-        """Create an inactive user and send the activation link.
-
-        If the mail can't be sent, the user is not saved. Otherwise username
-        and email would be taken by an account that can never be activated.
-        The error then results in a 500 response.
-        """
-        with transaction.atomic():
-            user = serializer.save(is_active=False)
-            send_activation_email(user)
-
-        return Response(
-            {
-                "detail": "Registration successful! Please check your email to activate your account.",
-                "user": UserSerializer(user).data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        token = activation_token_generator.make_token(user)
+        queue_activation_email(user, token)
+        data = {"user": {"id": user.id, "email": user.email}, "token": token}
+        return Response(data, status=status.HTTP_201_CREATED)
 
 
 class ActivateView(generics.GenericAPIView):

@@ -25,47 +25,45 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    """Validate the registration data and create the user."""
+class RegisterSerializer(serializers.Serializer):
+    """Validate the registration data and create an inactive user."""
 
-    class Meta:
-        model = User
-        fields = ("id", "username", "email", "password")
-        extra_kwargs = {
-            "email": {"required": True},
-            "password": {"write_only": True},
-        }
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    confirmed_password = serializers.CharField(write_only=True)
+
+    default_error_messages = {
+        "invalid_input": "Please check your input and try again.",
+    }
 
     def validate_email(self, value):
-        """Reject an email that is already used, regardless of upper/lower case."""
+        """Reject an email that is already in use, ignoring upper/lower case."""
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("Email already exists.")
-
+            self.fail("invalid_input")
         return value
 
     def validate(self, attrs):
-        """Check the password with the validators from ``AUTH_PASSWORD_VALIDATORS``.
-
-        An unsaved user is passed, so the validators can also reject passwords
-        that are too similar to the username or email.
-        """
-        user = User(username=attrs["username"], email=attrs["email"])
-
+        """Check that both passwords match and pass the password validators."""
+        if attrs["password"] != attrs["confirmed_password"]:
+            raise serializers.ValidationError(
+                {"confirmed_password": "Passwords do not match."}
+            )
+        user = User(username=attrs["email"], email=attrs["email"])
         try:
             validate_password(attrs["password"], user=user)
-        except DjangoValidationError as e:
-            # Show the errors under "password" instead of "non_field_errors".
-            raise serializers.ValidationError({"password": e.messages})
-
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"password": error.messages})
         return attrs
 
     def create(self, validated_data):
-        """Create the user. ``create_user`` hashes the password.
-
-        ``validated_data`` also contains the arguments of ``serializer.save()``,
-        e.g. ``is_active=False`` from the registration with email activation.
-        """
-        return User.objects.create_user(**validated_data)
+        """Create an inactive user. The email is used as username as well."""
+        email = validated_data["email"]
+        return User.objects.create_user(
+            username=email,
+            email=email,
+            password=validated_data["password"],
+            is_active=False,
+        )
 
 
 class ActivationSerializer(serializers.Serializer):
