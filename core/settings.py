@@ -365,5 +365,10 @@ AUTH_REGISTRATION = {
 if not FRONTEND_BASE_URL:
     raise ImproperlyConfigured("FRONTEND_BASE_URL is not set.")
 
+# Path of the frontend page the password reset link points to.
+PASSWORD_RESET_PATH = env(
+    "PASSWORD_RESET_PATH",
+    default="/pages/auth/confirm_password.html?uid={uid}&token={token}",
+)
 # How long activation links (and password reset links) stay valid, in seconds.
 PASSWORD_RESET_TIMEOUT = env.int("PASSWORD_RESET_TIMEOUT", default=60 * 60 * 24 * 3)

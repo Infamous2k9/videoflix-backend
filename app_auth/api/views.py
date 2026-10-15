@@ -4,20 +4,20 @@ All tokens are sent as ``HttpOnly`` cookies, never in the response body.
 """
 
 from django.conf import settings
-from django.db import transaction
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.views import (
     TokenBlacklistView,
-    TokenObtainPairView,
     TokenRefreshView,
 )
 
 from .serializers import (
     ActivationSerializer,
     LoginSerializer,
+    PasswordConfirmSerializer,
+    PasswordResetSerializer,
     RegisterSerializer,
     UserSerializer,
 )
@@ -27,6 +27,7 @@ from .utils import (
     get_refresh_cookie,
     get_tokens_for_user,
     queue_activation_email,
+    queue_password_reset_email,
     send_activation_email,
     set_auth_cookies,
 )
@@ -172,3 +173,48 @@ class CookieTokenRefreshView(TokenRefreshView):
         except TokenError as error:
             raise InvalidToken(error.args[0]) from error
         return serializer.validated_data
+
+
+class PasswordResetView(generics.GenericAPIView):
+    """Send a password reset link by email.
+
+    Endpoint: ``POST /api/password_reset/``
+    Authentication: none.
+    """
+
+    serializer_class = PasswordResetSerializer
+    permission_classes = (AllowAny,)
+    authentication_classes = ()
+
+    def post(self, request, *args, **kwargs):
+        """Queue the reset email. The response is the same for every email."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        queue_password_reset_email(serializer.validated_data["email"])
+        return Response(
+            {"detail": "An email has been sent to reset your password."},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordConfirmView(generics.GenericAPIView):
+    """Set a new password with the data from the reset link.
+
+    Endpoint: ``POST /api/password_confirm/<uidb64>/<token>/``
+    Authentication: none.
+    """
+
+    serializer_class = PasswordConfirmSerializer
+    permission_classes = (AllowAny,)
+    authentication_classes = ()
+
+    def post(self, request, uidb64, token, *args, **kwargs):
+        """Check the link and the new password, then save it."""
+        context = {**self.get_serializer_context(), "uidb64": uidb64, "token": token}
+        serializer = self.get_serializer(data=request.data, context=context)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(
+            {"detail": "Your Password has been successfully reset."},
+            status=status.HTTP_200_OK,
+        )
