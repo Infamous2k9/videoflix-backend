@@ -1,14 +1,19 @@
 """Helper functions of the authentication views."""
 
+from email.message import MIMEPart
+from pathlib import Path
+
 import django_rq
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import update_last_login
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.db import transaction
+from django.template.loader import render_to_string
 from django.utils.encoding import force_bytes, force_str
+from django.utils.html import strip_tags
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -91,9 +96,9 @@ def delete_auth_cookies(response):
 
 
 EMAIL_QUEUE = "high"
-
-
-EMAIL_QUEUE = "high"
+EMAIL_LOGO_PATH = (
+    Path(__file__).resolve().parents[1] / "static" / "app_auth" / "videoflix_logo.png"
+)
 
 
 def build_frontend_url(path_template, user, token):
@@ -126,16 +131,21 @@ def get_user_from_uidb64(uidb64):
 
 def send_activation_email(email, activation_url):
     """Send the activation link. Runs as a background job in the RQ worker."""
-    send_mail(
-        subject="Activate your Videoflix account",
-        message=(
-            "Welcome to Videoflix!\n\n"
-            "Please open the following link to activate your account:\n\n"
-            f"{activation_url}\n\n"
-            "If you did not register, you can ignore this email."
-        ),
-        from_email=None,
-        recipient_list=[email],
+    send_html_email(
+        "Confirm your email",
+        "app_auth/emails/activation_email.html",
+        {"email": email, "activation_url": activation_url},
+        email,
+    )
+
+
+def send_password_reset_email(email, reset_url):
+    """Send the password reset link. Runs as a background job in the RQ worker."""
+    send_html_email(
+        "Reset your Password",
+        "app_auth/emails/password_reset_email.html",
+        {"reset_url": reset_url},
+        email,
     )
 
 
@@ -162,21 +172,6 @@ def get_refresh_cookie(request):
     return refresh_token
 
 
-def send_password_reset_email(email, reset_url):
-    """Send the password reset link. Runs as a background job in the RQ worker."""
-    send_mail(
-        subject="Reset your Videoflix password",
-        message=(
-            "We received a request to reset your password.\n\n"
-            "Please open the following link to set a new password:\n\n"
-            f"{reset_url}\n\n"
-            "If you did not request this, you can ignore this email."
-        ),
-        from_email=None,
-        recipient_list=[email],
-    )
-
-
 def queue_password_reset_email(email):
     """Queue a reset link if an active user with this email exists.
 
@@ -191,3 +186,30 @@ def queue_password_reset_email(email):
     django_rq.get_queue(EMAIL_QUEUE).enqueue(
         send_password_reset_email, user.email, reset_url
     )
+
+
+def attach_logo(message):
+    """Attach the logo inline, referenced in the HTML as ``cid:videoflix_logo``."""
+    logo = MIMEPart()
+    logo.set_content(
+        EMAIL_LOGO_PATH.read_bytes(),
+        maintype="image",
+        subtype="png",
+        disposition="inline",
+        filename="videoflix_logo.png",
+        cid="<videoflix_logo>",
+    )
+    message.attach(logo)
+
+
+def send_html_email(subject, template_name, context, recipient):
+    """Send an HTML email with a plain text fallback and the inline logo."""
+    html_content = render_to_string(template_name, context)
+    message = EmailMultiAlternatives(
+        subject=subject,
+        body=strip_tags(html_content),
+        to=[recipient],
+    )
+    message.attach_alternative(html_content, "text/html")
+    attach_logo(message)
+    message.send()
