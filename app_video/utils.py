@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from django.conf import settings
+from django.http import Http404
 
 RESOLUTIONS = {"480p": 480, "720p": 720, "1080p": 1080}
 HLS_SEGMENT_SECONDS = 10
@@ -85,3 +86,17 @@ def delete_video_files(video):
     video.video_file.delete(save=False)
     video.thumbnail.delete(save=False)
     shutil.rmtree(get_video_dir(video.id), ignore_errors=True)
+
+
+def get_hls_file(video_id, resolution, filename):
+    """Return the path of an HLS file.
+
+    Raises:
+        Http404: The resolution is unknown or the file does not exist.
+    """
+    if resolution not in RESOLUTIONS:
+        raise Http404
+    path = get_hls_dir(video_id, resolution) / filename
+    if not path.is_file():
+        raise Http404
+    return path
